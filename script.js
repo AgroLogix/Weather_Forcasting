@@ -1,17 +1,13 @@
 const OWM_BASE = "https://api.openweathermap.org/data/2.5";
 const OWM_BASE3 = "https://api.openweathermap.org/data/3.0";
 const GEO_BASE = "https://api.openweathermap.org/geo/1.0";
+
 const LS_KEY_KEY = "skypulse_api_key";
 const LS_CITY_KEY = "skypulse_last_city";
 const LS_RECENT = "skypulse_recent";
 const LS_UNIT = "skypulse_unit";
 const LS_THEME = "skypulse_theme";
 
-// API key is loaded from env.js — keep that file out of version control!
-if (typeof ENV === "undefined" || !ENV.OWM_API_KEY) {
-  console.error("⚠️  env.js not loaded or OWM_API_KEY is missing.");
-}
-let API_KEY = (typeof ENV !== "undefined" && ENV.OWM_API_KEY) ? ENV.OWM_API_KEY : "";
 let isCel = localStorage.getItem(LS_UNIT) !== "F";
 let cTimer = null;
 let curLat = null;
@@ -157,8 +153,6 @@ function hideError() {
   document.getElementById("error-card").classList.remove("show");
 }
 document.getElementById("error-close").onclick = hideError;
-
-
 
 function getRecent() {
   try {
@@ -456,20 +450,22 @@ function setLoading(loading) {
 async function fetchByCity(cityName) {
   hideError();
   setLoading(true);
+
   try {
-    const geoRes = await fetch(
-      `${GEO_BASE}/direct?q=${encodeURIComponent(cityName)}&limit=1&appid=${API_KEY}`,
+    const res = await fetch(
+      `/api/weather?city=${encodeURIComponent(cityName)}`,
     );
-    if (!geoRes.ok) throw new Error(`Geocoding failed (${geoRes.status})`);
-    const geoData = await geoRes.json();
-    if (!geoData.length)
-      throw new Error(`City "${cityName}" not found. Try a different name.`);
-    await fetchByCoords(geoData[0].lat, geoData[0].lon, cityName);
+
+    if (!res.ok) throw new Error(`City not found (${res.status})`);
+
+    const data = await res.json();
+
+    await fetchByCoords(data.coord.lat, data.coord.lon, cityName);
   } catch (e) {
     setLoading(false);
-    const msg = e.message.includes("401")
-      ? "Invalid API key. Check your OpenWeatherMap key."
-      : e.message;
+
+    const msg = e.message.includes("401") ? "Invalid API key." : e.message;
+
     showError(msg);
     toast("❌ " + msg, true);
   }
@@ -479,21 +475,17 @@ async function fetchByCoords(lat, lon, cityHint = "") {
   hideError();
   setLoading(true);
   try {
-    const tzRes = await fetch(
-      `${GEO_BASE}/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${API_KEY}`,
-    );
+    const tzRes = await fetch(`/api/weather?lat=${lat}&lon=${lon}&type=tz`);
     let tz = "UTC";
-    if (tzRes.ok) {
-      tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    }
+
+if (tzRes.ok) {
+  const tzData = await tzRes.json();
+  tz = tzData.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
 
     const [curRes, fRes] = await Promise.all([
-      fetch(
-        `${OWM_BASE}/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`,
-      ),
-      fetch(
-        `${OWM_BASE}/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&cnt=40`,
-      ),
+      fetch(`/api/weather?lat=${lat}&lon=${lon}`),
+      fetch(`/api/weather?lat=${lat}&lon=${lon}&type=forecast`),
     ]);
 
     if (curRes.status === 401)
@@ -527,12 +519,13 @@ async function fetchByCoords(lat, lon, cityHint = "") {
     tz = guessTimezone(offsetSec, lat, lon) || tz;
 
     let uvi = undefined;
+
     try {
-      const uvRes = await fetch(
-        `${OWM_BASE3}/onecall?lat=${lat}&lon=${lon}&exclude=minutely,alerts&appid=${API_KEY}&units=metric`,
-      );
+      const uvRes = await fetch(`/api/weather?lat=${lat}&lon=${lon}&type=uv`);
+
       if (uvRes.ok) {
         const uvData = await uvRes.json();
+
         uvi = uvData.current?.uvi;
       }
     } catch (e) {}
